@@ -17,7 +17,8 @@ from matplotlib.collections import LineCollection
 import matplotlib.gridspec as gridspec
 
 
-def run_simulation(n: int, cost: float, track: float, n_iter: int, n_frames: int):
+def run_simulation(n: int, cost: float, track: float, all_edges: bool,
+                   n_iter: int, n_frames: int):
     """Run optimisation and return snapshots plus per-iteration statistics."""
     G = nx.grid_2d_graph(n, n)
     for u, v in G.edges():
@@ -50,22 +51,33 @@ def run_simulation(n: int, cost: float, track: float, n_iter: int, n_frames: int
         cum_path_len += path_len
         avg_path_lengths.append(cum_path_len / (i + 1))
 
-        # Decrease a random edge on the shortest path
         path_edges = list(zip(path[:-1], path[1:]))
-        eu, ev = random.choice(path_edges)
-        v_old = G[eu][ev]['weight']
-        v_new = max(v_old - 1.0, 0.0)
-        delta = v_old - v_new          # 0 or 1
-        G[eu][ev]['weight'] = v_new
-        total_sum -= delta
 
-        # Redistribute delta to a random edge that has room to grow (conserves total)
-        if delta > 0:
+        if not all_edges:
+            # Decrease one random edge on the path
+            eu, ev = random.choice(path_edges)
+            v_old = G[eu][ev]['weight']
+            v_new = max(v_old - 1.0, 0.0)
+            total_delta = v_old - v_new    # 0 or 1
+            G[eu][ev]['weight'] = v_new
+        else:
+            # Decrease every edge on the path by 1 (floor at 0)
+            total_delta = 0
+            for eu, ev in path_edges:
+                v_old = G[eu][ev]['weight']
+                v_new = max(v_old - 1.0, 0.0)
+                total_delta += v_old - v_new
+                G[eu][ev]['weight'] = v_new
+
+        total_sum -= total_delta
+
+        # Redistribute: increment that many randomly chosen eligible edges by 1
+        if total_delta > 0:
             eligible = [(u, v) for u, v in edges if G[u][v]['weight'] < cap]
-            if eligible:
-                ru, rv = random.choice(eligible)
-                G[ru][rv]['weight'] += delta  # guaranteed <= cap
-                total_sum += delta
+            chosen = random.sample(eligible, min(int(total_delta), len(eligible)))
+            for ru, rv in chosen:
+                G[ru][rv]['weight'] += 1.0
+            total_sum += len(chosen)
 
         total_sums.append(total_sum)
 
@@ -164,6 +176,10 @@ def main():
                         help='Number of animation frames to render')
     parser.add_argument('--track', type=float, default=0.1,
                         help='Fraction of edges initialised to weight 0 (train track)')
+    parser.add_argument('--all', dest='all_edges', type=int, default=0,
+                        choices=[0, 1],
+                        help='0: decrease one random path edge per iteration; '
+                             '1: decrease every path edge and redistribute weight')
     args = parser.parse_args()
 
     if args.dim < 2:
@@ -176,11 +192,12 @@ def main():
     print(
         f"Simulating {args.dim}×{args.dim} city  |  "
         f"cost={args.cost}  |  track={args.track:.0%}  |  "
+        f"all={args.all_edges}  |  "
         f"{args.iterations:,} iterations  |  {args.frames} animation frames"
     )
 
     edges, snapshots, snapshot_iters, avg_path_lengths, total_sums = run_simulation(
-        args.dim, args.cost, args.track, args.iterations, args.frames
+        args.dim, args.cost, args.track, bool(args.all_edges), args.iterations, args.frames
     )
 
     print(
