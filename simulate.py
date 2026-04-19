@@ -18,7 +18,7 @@ import matplotlib.gridspec as gridspec
 
 
 def run_simulation(n: int, cost: float, track: float, all_edges: bool,
-                   n_iter: int, n_frames: int):
+                   mutual: int, n_iter: int, n_frames: int):
     """Run optimisation and return snapshots plus per-iteration statistics."""
     G = nx.grid_2d_graph(n, n)
     for u, v in G.edges():
@@ -44,34 +44,44 @@ def run_simulation(n: int, cost: float, track: float, all_edges: bool,
     cum_path_len = 0.0
 
     for i in range(n_iter):
-        src, dst = random.sample(nodes, 2)
+        # Find `mutual` shortest paths and record their edge sets
+        edge_sets: list[set] = []
+        iter_path_len = 0.0
+        for _ in range(mutual):
+            src, dst = random.sample(nodes, 2)
+            path = nx.shortest_path(G, src, dst, weight='weight')
+            iter_path_len += nx.shortest_path_length(G, src, dst, weight='weight')
+            # Normalise direction so (u,v) and (v,u) are the same key
+            edge_sets.append({
+                tuple(sorted((u, v))) for u, v in zip(path[:-1], path[1:])
+            })
 
-        path = nx.shortest_path(G, src, dst, weight='weight')
-        path_len = nx.shortest_path_length(G, src, dst, weight='weight')
-        cum_path_len += path_len
+        cum_path_len += iter_path_len / mutual
         avg_path_lengths.append(cum_path_len / (i + 1))
 
-        path_edges = list(zip(path[:-1], path[1:]))
+        # Edges present in every path
+        common = list(edge_sets[0].intersection(*edge_sets[1:]))
 
-        if not all_edges:
-            # Decrease one random edge on the path
-            eu, ev = random.choice(path_edges)
-            v_old = G[eu][ev]['weight']
-            v_new = max(v_old - 1.0, 0.0)
-            total_delta = v_old - v_new    # 0 or 1
-            G[eu][ev]['weight'] = v_new
-        else:
-            # Decrease every edge on the path by 1 (floor at 0)
-            total_delta = 0
-            for eu, ev in path_edges:
+        total_delta = 0
+        if common:
+            if not all_edges:
+                # Decrease one randomly chosen common edge
+                eu, ev = random.choice(common)
                 v_old = G[eu][ev]['weight']
                 v_new = max(v_old - 1.0, 0.0)
-                total_delta += v_old - v_new
+                total_delta = v_old - v_new
                 G[eu][ev]['weight'] = v_new
+            else:
+                # Decrease every common edge by 1
+                for eu, ev in common:
+                    v_old = G[eu][ev]['weight']
+                    v_new = max(v_old - 1.0, 0.0)
+                    total_delta += v_old - v_new
+                    G[eu][ev]['weight'] = v_new
 
         total_sum -= total_delta
 
-        # Redistribute: increment that many randomly chosen eligible edges by 1
+        # Redistribute: pick that many distinct eligible edges and increment each by 1
         if total_delta > 0:
             eligible = [(u, v) for u, v in edges if G[u][v]['weight'] < cap]
             chosen = random.sample(eligible, min(int(total_delta), len(eligible)))
@@ -178,8 +188,11 @@ def main():
                         help='Fraction of edges initialised to weight 0 (train track)')
     parser.add_argument('--all', dest='all_edges', type=int, default=0,
                         choices=[0, 1],
-                        help='0: decrease one random path edge per iteration; '
-                             '1: decrease every path edge and redistribute weight')
+                        help='0: decrease one common edge per iteration; '
+                             '1: decrease all common edges and redistribute weight')
+    parser.add_argument('--mutual', type=int, default=1,
+                        help='Number of random paths to find per iteration; '
+                             'only edges shared by ALL paths are eligible for optimisation')
     args = parser.parse_args()
 
     if args.dim < 2:
@@ -188,16 +201,19 @@ def main():
         parser.error('--cost must be positive')
     if not 0.0 <= args.track <= 1.0:
         parser.error('--track must be between 0 and 1')
+    if args.mutual < 1:
+        parser.error('--mutual must be at least 1')
 
     print(
         f"Simulating {args.dim}×{args.dim} city  |  "
         f"cost={args.cost}  |  track={args.track:.0%}  |  "
-        f"all={args.all_edges}  |  "
+        f"all={args.all_edges}  |  mutual={args.mutual}  |  "
         f"{args.iterations:,} iterations  |  {args.frames} animation frames"
     )
 
     edges, snapshots, snapshot_iters, avg_path_lengths, total_sums = run_simulation(
-        args.dim, args.cost, args.track, bool(args.all_edges), args.iterations, args.frames
+        args.dim, args.cost, args.track, bool(args.all_edges),
+        args.mutual, args.iterations, args.frames
     )
 
     print(
