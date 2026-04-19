@@ -39,20 +39,24 @@ python simulate.py [--dim N] [--cost C] [--iterations K] [--frames F]
 |------|---------|-------------|
 | `--dim` | 20 | Grid side length (city is N×N nodes) |
 | `--cost` | 1.0 | Initial travel cost per edge (any positive number) |
+| `--track` | 0.1 | Fraction of edges pre-set to weight 0 (randomly placed initial track) |
 | `--iterations` | 10000 | Number of optimisation steps |
 | `--frames` | 200 | Number of animation frames |
 
 ### Examples
 
 ```bash
-# Default 20×20 city, 10 000 steps
+# Default 20×20 city, 10 000 steps, 10% initial track
 python simulate.py
 
+# Denser initial track
+python simulate.py --track 0.3
+
 # Larger city, more iterations
-python simulate.py --dim 30 --iterations 50000
+python simulate.py --dim 30 --iterations 50000 --track 0.2
 
 # Non-unit initial cost
-python simulate.py --dim 15 --cost 2.0 --iterations 20000
+python simulate.py --dim 15 --cost 2.0 --track 0.15 --iterations 20000
 ```
 
 ## Notes

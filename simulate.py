@@ -17,7 +17,7 @@ from matplotlib.collections import LineCollection
 import matplotlib.gridspec as gridspec
 
 
-def run_simulation(n: int, cost: float, n_iter: int, n_frames: int):
+def run_simulation(n: int, cost: float, track: float, n_iter: int, n_frames: int):
     """Run optimisation and return snapshots plus per-iteration statistics."""
     G = nx.grid_2d_graph(n, n)
     for u, v in G.edges():
@@ -26,7 +26,13 @@ def run_simulation(n: int, cost: float, n_iter: int, n_frames: int):
     nodes = list(G.nodes())
     edges = list(G.edges())
     cap = float(cost)
-    total_sum = len(edges) * cap
+
+    # Randomly pre-place track: set a fraction of edges to weight 0
+    n_track = round(track * len(edges))
+    for u, v in random.sample(edges, n_track):
+        G[u][v]['weight'] = 0.0
+
+    total_sum = sum(G[u][v]['weight'] for u, v in edges)
 
     frame_interval = max(1, n_iter // n_frames)
 
@@ -156,21 +162,25 @@ def main():
                         help='Number of optimisation iterations')
     parser.add_argument('--frames', type=int, default=200,
                         help='Number of animation frames to render')
+    parser.add_argument('--track', type=float, default=0.1,
+                        help='Fraction of edges initialised to weight 0 (train track)')
     args = parser.parse_args()
 
     if args.dim < 2:
         parser.error('--dim must be at least 2')
     if args.cost <= 0:
         parser.error('--cost must be positive')
+    if not 0.0 <= args.track <= 1.0:
+        parser.error('--track must be between 0 and 1')
 
     print(
         f"Simulating {args.dim}×{args.dim} city  |  "
-        f"cost={args.cost}  |  {args.iterations:,} iterations  |  "
-        f"{args.frames} animation frames"
+        f"cost={args.cost}  |  track={args.track:.0%}  |  "
+        f"{args.iterations:,} iterations  |  {args.frames} animation frames"
     )
 
     edges, snapshots, snapshot_iters, avg_path_lengths, total_sums = run_simulation(
-        args.dim, args.cost, args.iterations, args.frames
+        args.dim, args.cost, args.track, args.iterations, args.frames
     )
 
     print(
